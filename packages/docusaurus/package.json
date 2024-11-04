@@ -10,10 +10,10 @@
   },
   "dependencies": {
     "@codesandbox/sandpack-react": "^1.15.0",
-    "@docusaurus/core": "^3.4.0",
+    "@docusaurus/core": "^3.6.0",
     "@docusaurus/mdx-loader": "^3.4.0",
     "@docusaurus/plugin-content-docs": "^3.4.0",
-    "@docusaurus/preset-classic": "^3.4.0",
+    "@docusaurus/preset-classic": "^3.6.0",
     "@docusaurus/theme-classic": "^3.4.0",
     "@docusaurus/theme-common": "^3.4.0",
     "@fontsource/pt-sans": "^5.0.5",
@@ -80,7 +80,7 @@
   "devDependencies": {
     "@docusaurus/module-type-aliases": "^3.4.0",
     "@docusaurus/tsconfig": "^3.4.0",
-    "@docusaurus/types": "^3.4.0",
+    "@docusaurus/types": "^3.6.0",
     "@types/dompurify": "^3",
     "@types/git-url-parse": "^9.0.0",
     "@types/lodash": "^4.14.136",
