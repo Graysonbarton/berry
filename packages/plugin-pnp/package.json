@@ -22,7 +22,7 @@
   "devDependencies": {
     "@types/micromatch": "^4.0.1",
     "@yarnpkg/cli": "workspace:^",
-    "@yarnpkg/core": "workspace:^"
+    "@yarnpkg/core": "2.1.0"
   },
   "repository": {
     "type": "git",
