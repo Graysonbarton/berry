@@ -7,7 +7,7 @@
   ],
   "devDependencies": {
     "@arcanis/sherlock": "^2.0.3",
-    "@eslint/config-inspector": "^0.5.0",
+    "@eslint/config-inspector": "^1.0.0",
     "@types/jest": "^28.1.6",
     "@types/micromatch": "^4.0.1",
     "@types/node": "^18.17.15",
