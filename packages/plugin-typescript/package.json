@@ -22,7 +22,7 @@
   "devDependencies": {
     "@algolia/requester-common": "4.0.0-beta.14",
     "@types/semver": "^7.1.0",
-    "@yarnpkg/builder": "workspace:^",
+    "@yarnpkg/builder": "2.1.0",
     "@yarnpkg/cli": "workspace:^",
     "@yarnpkg/core": "workspace:^",
     "@yarnpkg/plugin-essentials": "workspace:^"
