@@ -23,7 +23,7 @@
   },
   "devDependencies": {
     "@yarnpkg/cli": "workspace:^",
-    "@yarnpkg/core": "workspace:^"
+    "@yarnpkg/core": "2.1.0"
   },
   "version": "4.0.3",
   "nextVersion": {
