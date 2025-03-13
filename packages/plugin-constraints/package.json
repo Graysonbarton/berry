@@ -25,7 +25,7 @@
   },
   "devDependencies": {
     "@types/lodash": "^4.14.136",
-    "@yarnpkg/builder": "workspace:^",
+    "@yarnpkg/builder": "2.1.0",
     "@yarnpkg/cli": "workspace:^",
     "@yarnpkg/core": "workspace:^",
     "@yarnpkg/types": "workspace:^"
