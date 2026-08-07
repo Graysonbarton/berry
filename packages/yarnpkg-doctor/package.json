@@ -1,6 +1,6 @@
 {
   "name": "@yarnpkg/doctor",
-  "version": "4.0.2",
+  "version": "4.0.7",
   "license": "BSD-2-Clause",
   "bin": "./sources/boot-cli-dev.js",
   "exports": {
@@ -16,7 +16,7 @@
     "micromatch": "^4.0.2",
     "p-limit": "^2.2.0",
     "tslib": "^2.4.0",
-    "typescript": "^5.5.2"
+    "typescript": "catalog:"
   },
   "devDependencies": {
     "@types/micromatch": "^4.0.1",
@@ -38,11 +38,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "ssh://git@github.com/yarnpkg/berry.git",
+    "url": "git+https://github.com/yarnpkg/berry.git",
     "directory": "packages/yarnpkg-doctor"
   },
   "engines": {
     "node": ">=18.12.0"
   },
-  "stableVersion": "4.0.2"
+  "stableVersion": "4.0.7"
 }

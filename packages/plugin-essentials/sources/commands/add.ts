@@ -113,6 +113,10 @@ export default class AddCommand extends BaseCommand {
     description: `Reuse the highest version already used somewhere within the project`,
   });
 
+  noTimeGate = Option.Boolean(`--no-time-gate`, false, {
+    description: `Disable the minimum release age check for this command`,
+  });
+
   mode = Option.String(`--mode`, {
     description: `Change what artifacts installs generate`,
     validator: t.isEnum(InstallMode),
@@ -124,6 +128,10 @@ export default class AddCommand extends BaseCommand {
 
   async execute() {
     const configuration = await Configuration.find(this.context.cwd, this.context.plugins);
+
+    if (this.noTimeGate)
+      suggestUtils.disableTimeGate(configuration);
+
     const {project, workspace} = await Project.find(configuration, this.context.cwd);
     const cache = await Cache.find(configuration);
 
@@ -161,10 +169,23 @@ export default class AddCommand extends BaseCommand {
       ? Infinity
       : 1;
 
+    const jsrToDescriptor = (pseudoDescriptor: string) => {
+      const descriptor = structUtils.tryParseDescriptor(pseudoDescriptor.slice(4));
+      if (!descriptor)
+        return null;
+
+      if (descriptor.range === `unknown`)
+        return structUtils.makeDescriptor(descriptor, `jsr:${structUtils.stringifyIdent(descriptor)}@latest`);
+
+      return structUtils.makeDescriptor(descriptor, `jsr:${descriptor.range}`);
+    };
+
     const allSuggestions = await Promise.all(this.packages.map(async pseudoDescriptor => {
       const request = pseudoDescriptor.match(/^\.{0,2}\//)
         ? await suggestUtils.extractDescriptorFromPath(pseudoDescriptor as PortablePath, {cwd: this.context.cwd, workspace})
-        : structUtils.tryParseDescriptor(pseudoDescriptor);
+        : pseudoDescriptor.startsWith(`jsr:`)
+          ? jsrToDescriptor(pseudoDescriptor)
+          : structUtils.tryParseDescriptor(pseudoDescriptor);
 
       const unsupportedPrefix = pseudoDescriptor.match(/^(https?:|git@github)/);
       if (unsupportedPrefix)

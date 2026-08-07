@@ -107,7 +107,7 @@ export function makeDescriptor(ident: Ident, {parentLocator, sourceDescriptor, p
   return structUtils.makeDescriptor(ident, makeSpec({parentLocator, sourceItem: sourceDescriptor, patchPaths}, structUtils.stringifyDescriptor));
 }
 
-export function makeLocator(ident: Ident, {parentLocator, sourcePackage, patchPaths, patchHash}: Omit<ReturnType<typeof parseLocator>, 'sourceLocator' | 'sourceVersion'> & {sourcePackage: Package, patchHash: string}) {
+export function makeLocator(ident: Ident, {parentLocator, sourcePackage, patchPaths, patchHash}: Omit<ReturnType<typeof parseLocator>, `sourceLocator` | `sourceVersion`> & {sourcePackage: Package, patchHash: string}) {
   return structUtils.makeLocator(ident, makeSpec({parentLocator, sourceItem: sourcePackage, sourceVersion: sourcePackage.version, patchPaths, patchHash}, structUtils.stringifyLocator));
 }
 
@@ -282,7 +282,7 @@ export async function diffFolders(folderA: PortablePath, folderB: PortablePath) 
   const folderAN = npath.fromPortablePath(folderA).replace(/\\/g, `/`);
   const folderBN = npath.fromPortablePath(folderB).replace(/\\/g, `/`);
 
-  const {stdout, stderr} = await execUtils.execvp(`git`, [`-c`, `core.safecrlf=false`, `diff`, `--src-prefix=a/`, `--dst-prefix=b/`, `--ignore-cr-at-eol`, `--full-index`, `--no-index`, `--no-renames`, `--text`, folderAN, folderBN], {
+  const {stdout, stderr} = await execUtils.execvp(`git`, [`-c`, `core.safecrlf=false`, `-c`, `core.quotePath=false`, `diff`, `--src-prefix=a/`, `--dst-prefix=b/`, `--ignore-cr-at-eol`, `--full-index`, `--no-index`, `--no-renames`, `--text`, folderAN, folderBN], {
     cwd: npath.toPortablePath(process.cwd()),
     env: {
       ...process.env,

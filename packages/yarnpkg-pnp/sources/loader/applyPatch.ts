@@ -14,14 +14,6 @@ export type ApplyPatchOptions = {
   manager: Manager;
 };
 
-declare global {
-  module NodeJS {
-    interface Process {
-      dlopen: (module: Object, filename: string, flags?: number) => void;
-    }
-  }
-}
-
 export function applyPatch(pnpapi: PnpApi, opts: ApplyPatchOptions) {
   /**
    * Used to disable the resolution hooks (for when we want to fallback to the previous resolution - we then need
@@ -151,6 +143,7 @@ export function applyPatch(pnpapi: PnpApi, opts: ApplyPatchOptions) {
       const optionNames = new Set(Object.keys(options));
       optionNames.delete(`paths`);
       optionNames.delete(`plugnplay`);
+      optionNames.delete(`conditions`);
 
       if (optionNames.size > 0) {
         throw makeError(
@@ -201,12 +194,16 @@ export function applyPatch(pnpapi: PnpApi, opts: ApplyPatchOptions) {
 
       try {
         if (issuerApi !== null) {
-          resolution = issuerApi.resolveRequest(request, path !== null ? `${path}/` : null);
+          resolution = issuerApi.resolveRequest(request, path !== null ? `${path}/` : null, {
+            conditions: options?.conditions,
+          });
         } else {
           if (path === null)
             throw new Error(`Assertion failed: Expected the path to be set`);
 
-          resolution = originalModuleResolveFilename.call(Module, request, module || makeFakeParent(path), isMain);
+          resolution = originalModuleResolveFilename.call(Module, request, module || makeFakeParent(path), isMain, {
+            conditions: options?.conditions,
+          });
         }
       } catch (error) {
         firstError = firstError || error;
@@ -263,7 +260,7 @@ export function applyPatch(pnpapi: PnpApi, opts: ApplyPatchOptions) {
         } else {
           resolution = originalFindPath.call(Module, request, [path], isMain);
         }
-      } catch (error) {
+      } catch {
         continue;
       }
 
@@ -275,20 +272,23 @@ export function applyPatch(pnpapi: PnpApi, opts: ApplyPatchOptions) {
     return false;
   };
 
-  // https://github.com/nodejs/node/blob/3743406b0a44e13de491c8590386a964dbe327bb/lib/internal/modules/cjs/loader.js#L1110-L1154
-  const originalExtensionJSFunction = Module._extensions[`.js`] as (module: NodeModule, filename: string) => void;
-  Module._extensions[`.js`] = function (module: NodeModule, filename: string) {
-    if (filename.endsWith(`.js`)) {
-      const pkg = nodeUtils.readPackageScope(filename);
-      if (pkg && pkg.data?.type === `module`) {
-        const err = nodeUtils.ERR_REQUIRE_ESM(filename, module.parent?.filename);
-        Error.captureStackTrace(err);
-        throw err;
+  // @ts-expect-error - Missing types
+  if (!process.features.require_module) {
+    // https://github.com/nodejs/node/blob/3743406b0a44e13de491c8590386a964dbe327bb/lib/internal/modules/cjs/loader.js#L1110-L1154
+    const originalExtensionJSFunction = Module._extensions[`.js`] as (module: NodeModule, filename: string) => void;
+    Module._extensions[`.js`] = function (module: NodeModule, filename: string) {
+      if (filename.endsWith(`.js`)) {
+        const pkg = nodeUtils.readPackageScope(filename);
+        if (pkg && pkg.data?.type === `module`) {
+          const err = nodeUtils.ERR_REQUIRE_ESM(filename, module.parent?.filename);
+          Error.captureStackTrace(err);
+          throw err;
+        }
       }
-    }
 
-    originalExtensionJSFunction.call(this, module, filename);
-  };
+      originalExtensionJSFunction.call(this, module, filename);
+    };
+  }
 
   const originalDlopen = process.dlopen;
   process.dlopen = function (...args) {

@@ -1,8 +1,8 @@
 import {YarnCli, getCli}        from '@yarnpkg/cli';
 import {parseShell}             from '@yarnpkg/parsers';
 import type {Definition, Token} from 'clipanion';
+import {capitalize}             from 'es-toolkit/compat';
 import {fromJs}                 from 'esast-util-from-js';
-import {capitalize}             from 'lodash';
 import type {MdxJsxFlowElement} from 'mdast-util-mdx-jsx';
 import type {Parent, Root}      from 'mdast';
 import type {Transformer}       from 'unified';
@@ -133,7 +133,7 @@ const makeCommandLine = (line: string, cli: YarnCli) => {
 const makeCommandOrRawLine = (line: string, cli: YarnCli) => {
   try {
     return makeCommandLine(line, cli);
-  } catch (err: any) {
+  } catch {
     console.log(`Failed to parse "${line}"`);
     return makeRawLine(line);
   }

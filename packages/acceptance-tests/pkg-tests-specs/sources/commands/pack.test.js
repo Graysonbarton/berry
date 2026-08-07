@@ -1,6 +1,6 @@
 import {xfs, npath}          from '@yarnpkg/fslib';
 import {fs as fsUtils, misc} from 'pkg-tests-core';
-import tar                   from 'tar';
+import * as tar              from 'tar';
 
 async function genPackList(run) {
   const {stdout} = await run(`pack`, `--dry-run`, `--json`);
@@ -819,6 +819,21 @@ describe(`Commands`, () => {
 
         await run(`pack`, `--out`, `${tmpDir}/test.tgz`);
         expect(xfs.existsSync(`${tmpDir}/test.tgz`)).toEqual(true);
+      }),
+    );
+
+    test(
+      `it should create missing directories when using \`--out\``,
+      makeTemporaryEnv({
+        name: `@scope/test`,
+        version: `0.0.1`,
+      }, async ({path, run, source}) => {
+        await xfs.mkdirpPromise(path);
+
+        await run(`install`);
+
+        await run(`pack`, `--out`, `subdir/my-package.tgz`, {cwd: path});
+        expect(xfs.existsSync(`${path}/subdir/my-package.tgz`)).toEqual(true);
       }),
     );
 

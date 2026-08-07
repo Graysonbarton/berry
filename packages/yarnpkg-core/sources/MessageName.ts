@@ -102,6 +102,8 @@ export enum MessageName {
   VERSION_NOTICE = 88,
   TIPS_NOTICE = 89,
   OFFLINE_MODE_ENABLED = 90,
+  INVALID_PROVENANCE_ENVIRONMENT = 91,
+  EXPERIMENTAL = 92,
 }
 
 export function stringifyMessageName(name: MessageName | number): string {

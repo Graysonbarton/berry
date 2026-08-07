@@ -1,52 +1,49 @@
-import {npath}                                                          from '@yarnpkg/fslib';
-import {PortablePath, ppath, xfs, normalizeLineEndings, Filename}       from '@yarnpkg/fslib';
-import {parseSyml, stringifySyml}                                       from '@yarnpkg/parsers';
-import {UsageError}                                                     from 'clipanion';
-import {createHash}                                                     from 'crypto';
-import {structuredPatch}                                                from 'diff';
-import pick                                                             from 'lodash/pick';
-import pLimit                                                           from 'p-limit';
-import semver                                                           from 'semver';
-import internal                                                         from 'stream';
-import {promisify}                                                      from 'util';
-import v8                                                               from 'v8';
-import zlib                                                             from 'zlib';
+import {Filename, normalizeLineEndings, npath, PortablePath, ppath, xfs}                                               from '@yarnpkg/fslib';
+import {parseSyml, stringifySyml}                                                                                      from '@yarnpkg/parsers';
+import {UsageError}                                                                                                    from 'clipanion';
+import {createHash}                                                                                                    from 'crypto';
+import {structuredPatch}                                                                                               from 'diff';
+import {pick}                                                                                                          from 'es-toolkit/compat';
+import pLimit                                                                                                          from 'p-limit';
+import semver                                                                                                          from 'semver';
+import internal                                                                                                        from 'stream';
+import {promisify}                                                                                                     from 'util';
+import v8                                                                                                              from 'v8';
+import zlib                                                                                                            from 'zlib';
 
-import {Cache, CacheOptions}                                            from './Cache';
-import {Configuration}                                                  from './Configuration';
-import {Fetcher, FetchOptions}                                          from './Fetcher';
-import {Installer, BuildDirective, BuildDirectiveType, InstallStatus}   from './Installer';
-import {LegacyMigrationResolver}                                        from './LegacyMigrationResolver';
-import {Linker, LinkOptions}                                            from './Linker';
-import {LockfileResolver}                                               from './LockfileResolver';
-import {DependencyMeta, Manifest, type PeerDependencyMeta}              from './Manifest';
-import {MessageName}                                                    from './MessageName';
-import {MultiResolver}                                                  from './MultiResolver';
-import {Report, ReportError}                                            from './Report';
-import {ResolveOptions, Resolver}                                       from './Resolver';
-import {RunInstallPleaseResolver}                                       from './RunInstallPleaseResolver';
-import {SUPPORTS_GROUPS, StreamReport}                                  from './StreamReport';
-import {ThrowReport}                                                    from './ThrowReport';
-import {WorkspaceResolver}                                              from './WorkspaceResolver';
-import {Workspace}                                                      from './Workspace';
-import {isFolderInside}                                                 from './folderUtils';
-import * as formatUtils                                                 from './formatUtils';
-import * as hashUtils                                                   from './hashUtils';
-import * as miscUtils                                                   from './miscUtils';
-import * as nodeUtils                                                   from './nodeUtils';
-import * as scriptUtils                                                 from './scriptUtils';
-import * as semverUtils                                                 from './semverUtils';
-import * as structUtils                                                 from './structUtils';
-import {LinkType}                                                       from './types';
-import {Descriptor, Ident, Locator, Package}                            from './types';
-import {IdentHash, DescriptorHash, LocatorHash, PackageExtensionStatus} from './types';
+import {Cache, CacheOptions}                                                                                           from './Cache';
+import {Configuration}                                                                                                 from './Configuration';
+import {Fetcher, FetchOptions}                                                                                         from './Fetcher';
+import {BuildDirective, BuildDirectiveType, Installer, InstallStatus}                                                  from './Installer';
+import {LegacyMigrationResolver}                                                                                       from './LegacyMigrationResolver';
+import {Linker, LinkOptions}                                                                                           from './Linker';
+import {LockfileResolver}                                                                                              from './LockfileResolver';
+import {DependencyMeta, Manifest, type PeerDependencyMeta}                                                             from './Manifest';
+import {MessageName}                                                                                                   from './MessageName';
+import {MultiResolver}                                                                                                 from './MultiResolver';
+import {Report, ReportError}                                                                                           from './Report';
+import {ResolveOptions, Resolver}                                                                                      from './Resolver';
+import {RunInstallPleaseResolver}                                                                                      from './RunInstallPleaseResolver';
+import {StreamReport, SUPPORTS_GROUPS}                                                                                 from './StreamReport';
+import {ThrowReport}                                                                                                   from './ThrowReport';
+import {WorkspaceResolver}                                                                                             from './WorkspaceResolver';
+import {Workspace}                                                                                                     from './Workspace';
+import {isFolderInside}                                                                                                from './folderUtils';
+import * as formatUtils                                                                                                from './formatUtils';
+import * as hashUtils                                                                                                  from './hashUtils';
+import * as miscUtils                                                                                                  from './miscUtils';
+import * as nodeUtils                                                                                                  from './nodeUtils';
+import * as scriptUtils                                                                                                from './scriptUtils';
+import * as semverUtils                                                                                                from './semverUtils';
+import * as structUtils                                                                                                from './structUtils';
+import {Descriptor, DescriptorHash, Ident, IdentHash, LinkType, Locator, LocatorHash, Package, PackageExtensionStatus} from './types';
 
 // When upgraded, the lockfile entries have to be resolved again (but the specific
 // versions are still pinned, no worry). Bump it when you change the fields within
 // the Package type; no more no less.
 export const LOCKFILE_VERSION = miscUtils.parseInt(
   process.env.YARN_LOCKFILE_VERSION_OVERRIDE ??
-  8,
+  10,
 );
 
 // Same thing but must be bumped when the members of the Project class changes (we
@@ -484,8 +481,9 @@ export class Project {
     if (!ppath.isAbsolute(workspaceCwd))
       workspaceCwd = ppath.resolve(this.cwd, workspaceCwd);
 
-    workspaceCwd = ppath.normalize(workspaceCwd)
-      .replace(/\/+$/, ``) as PortablePath;
+    // Stripping trailing slashes from the filesystem root ('/') produces an
+    // empty string, so we fall back to PortablePath.root to preserve it.
+    workspaceCwd = (ppath.normalize(workspaceCwd).replace(/\/+$/, ``) || PortablePath.root) as PortablePath;
 
     const workspace = this.workspacesByCwd.get(workspaceCwd);
     if (!workspace)
@@ -1016,9 +1014,9 @@ export class Project {
     const volatileDescriptors = new Set(this.resolutionAliases.values());
     const optionalBuilds = new Set(allPackages.keys());
     const accessibleLocators = new Set<LocatorHash>();
-    const peerRequirements: Project['peerRequirements'] = new Map();
-    const peerWarnings: Project['peerWarnings'] = [];
-    const peerRequirementNodes: Project['peerRequirementNodes'] = new Map();
+    const peerRequirements: Project[`peerRequirements`] = new Map();
+    const peerWarnings: Project[`peerWarnings`] = [];
+    const peerRequirementNodes: Project[`peerRequirementNodes`] = new Map();
 
     applyVirtualResolutionMutations({
       project: this,
@@ -2017,7 +2015,7 @@ export class Project {
     let currentContent = ``;
     try {
       currentContent = await xfs.readFilePromise(lockfilePath, `utf8`);
-    } catch (error) {
+    } catch {
       // ignore errors, no big deal
     }
 
@@ -2181,9 +2179,9 @@ function applyVirtualResolutionMutations({
 
   accessibleLocators?: Set<LocatorHash>;
   optionalBuilds?: Set<LocatorHash>;
-  peerRequirements?: Project['peerRequirements'];
-  peerWarnings?: Project['peerWarnings'];
-  peerRequirementNodes?: Project['peerRequirementNodes'];
+  peerRequirements?: Project[`peerRequirements`];
+  peerWarnings?: Project[`peerWarnings`];
+  peerRequirementNodes?: Project[`peerRequirementNodes`];
   volatileDescriptors?: Set<DescriptorHash>;
 }) {
   const virtualStack = new Map<LocatorHash, number>();
@@ -2191,10 +2189,11 @@ function applyVirtualResolutionMutations({
 
   const allIdents = new Map<IdentHash, Ident>();
 
-  // We'll be keeping track of all virtual descriptors; once they have all
-  // been generated we'll check whether they can be deduplicated into one.
-  const allVirtualInstances = new Map<LocatorHash, Map<string, Descriptor>>();
-  const allVirtualDependents = new Map<DescriptorHash, Set<LocatorHash>>();
+  /** Maps dependency hashes to the first virtual locator encountered with that hash, for deduplication */
+  const allVirtualInstances = new Map<string, Locator>();
+  const allVirtualDependents = new Map<LocatorHash, Set<LocatorHash>>();
+  /** Maps virtual locators to all (virtual) descriptors that resolve to them, for deduplication */
+  const allVirtualResolutions = new Map<LocatorHash, Set<DescriptorHash>>();
 
   const allPeerRequests = new Map<LocatorHash, Map<IdentHash, PeerRequestNode>>();
 
@@ -2223,6 +2222,7 @@ function applyVirtualResolutionMutations({
     xfs.writeFileSync(logFile, content);
 
     xfs.detachTemp(logDir);
+
     throw new ReportError(MessageName.STACK_OVERFLOW_RESOLUTION, `Encountered a stack overflow when resolving peer dependencies; cf ${npath.fromPortablePath(logFile)}`);
   };
 
@@ -2262,7 +2262,7 @@ function applyVirtualResolutionMutations({
     if (!parentPackage)
       throw new Error(`Assertion failed: The package (${structUtils.prettyLocator(project.configuration, parentLocator)}) should have been registered`);
 
-    const newVirtualInstances: Array<[Locator, Descriptor, Package]> = [];
+    const dedupeCandidates = new Set<LocatorHash>();
     const parentPeerRequirements = new Map<IdentHash, PeerRequirementNode>();
 
     const firstPass = [];
@@ -2321,16 +2321,15 @@ function applyVirtualResolutionMutations({
         virtualizedDescriptor = structUtils.virtualizeDescriptor(descriptor, parentLocator.locatorHash);
         virtualizedPackage = structUtils.virtualizePackage(pkg, parentLocator.locatorHash);
 
-        parentPackage.dependencies.delete(descriptor.identHash);
-        parentPackage.dependencies.set(virtualizedDescriptor.identHash, virtualizedDescriptor);
+        parentPackage.dependencies.set(descriptor.identHash, virtualizedDescriptor);
 
         allResolutions.set(virtualizedDescriptor.descriptorHash, virtualizedPackage.locatorHash);
         allDescriptors.set(virtualizedDescriptor.descriptorHash, virtualizedDescriptor);
 
         allPackages.set(virtualizedPackage.locatorHash, virtualizedPackage);
 
-        // Keep track of all new virtual packages since we'll want to dedupe them
-        newVirtualInstances.push([pkg, virtualizedDescriptor, virtualizedPackage]);
+        miscUtils.getSetWithDefault(allVirtualResolutions, virtualizedPackage.locatorHash).add(virtualizedDescriptor.descriptorHash);
+        dedupeCandidates.add(virtualizedPackage.locatorHash);
       });
 
       // In the second pass we resolve the peer requests to their provision.
@@ -2374,7 +2373,7 @@ function applyVirtualResolutionMutations({
 
               requests: new Map(),
 
-              hash: `p${hashUtils.makeHash(parentLocator.locatorHash, peerDescriptor.identHash).slice(0, 5)}`,
+              hash: `p${hashUtils.makeHash(parentLocator.locatorHash, peerDescriptor.identHash).slice(0, 6)}`,
             };
           });
 
@@ -2396,10 +2395,12 @@ function applyVirtualResolutionMutations({
 
           virtualizedPackage.dependencies.set(peerDescriptor.identHash, peerProvision);
 
-          // Need to track when a virtual descriptor is set as a dependency in case
-          // the descriptor will be deduplicated.
+          // Need to keep track when a virtual depends on a sibling virtual so
+          // that if and when the latter is deduplicated, we know the former
+          // needs to be deduplicated again
           if (structUtils.isVirtualDescriptor(peerProvision)) {
-            const dependents = miscUtils.getSetWithDefault(allVirtualDependents, peerProvision.descriptorHash);
+            const dependentLocatorHash = allResolutions.get(peerProvision.descriptorHash);
+            const dependents = miscUtils.getSetWithDefault(allVirtualDependents, dependentLocatorHash);
             dependents.add(virtualizedPackage.locatorHash);
           }
 
@@ -2446,11 +2447,7 @@ function applyVirtualResolutionMutations({
       // In the fourth pass, we register information about the peer requirement
       // and peer request trees, using the post-deduplication information.
       fourthPass.push(() => {
-        const finalDescriptor = parentPackage.dependencies.get(descriptor.identHash);
-        if (typeof finalDescriptor === `undefined`)
-          throw new Error(`Assertion failed: Expected the peer dependency to have been turned into a dependency`);
-
-        const finalResolution = allResolutions.get(finalDescriptor.descriptorHash)!;
+        const finalResolution = allResolutions.get(virtualizedDescriptor.descriptorHash)!;
         if (typeof finalResolution === `undefined`)
           throw new Error(`Assertion failed: Expected the descriptor to be registered`);
 
@@ -2463,10 +2460,10 @@ function applyVirtualResolutionMutations({
           if (!peerRequest)
             continue;
 
-          peerRequirement.requests.set(finalDescriptor.descriptorHash, peerRequest);
+          peerRequirement.requests.set(virtualizedDescriptor.descriptorHash, peerRequest);
           peerRequirementNodes.set(peerRequirement.hash, peerRequirement);
           if (!peerRequirement.root) {
-            parentPeerRequests.get(peerRequirement.ident.identHash)?.children.set(finalDescriptor.descriptorHash, peerRequest);
+            parentPeerRequests.get(peerRequirement.ident.identHash)?.children.set(virtualizedDescriptor.descriptorHash, peerRequest);
           }
         }
 
@@ -2482,76 +2479,63 @@ function applyVirtualResolutionMutations({
     for (const fn of [...firstPass, ...secondPass])
       fn();
 
-    let stable: boolean;
-    do {
-      stable = true;
+    for (const locatorHash of dedupeCandidates) {
+      // Remove locatorHash here so that if a dependency is deduped, it will be
+      // deduped again when added to the dedupe candidates
+      dedupeCandidates.delete(locatorHash);
 
-      for (const [physicalLocator, virtualDescriptor, virtualPackage] of newVirtualInstances) {
-        const otherVirtualInstances = miscUtils.getMapWithDefault(allVirtualInstances, physicalLocator.locatorHash);
+      const virtualPackage = allPackages.get(locatorHash)!;
 
-        // We take all the dependencies from the new virtual instance and
-        // generate a hash from it. By checking if this hash is already
-        // registered, we know whether we can trim the new version.
-        const dependencyHash = hashUtils.makeHash(
-          ...[...virtualPackage.dependencies.values()].map(descriptor => {
-            const resolution = descriptor.range !== `missing:`
-              ? allResolutions.get(descriptor.descriptorHash)
-              : `missing:`;
+      // We take all the dependencies from the new virtual instance and
+      // generate a hash from it. By checking if this hash is already
+      // registered, we know whether we can trim the new version.
+      const dependencyHash = hashUtils.makeHash(
+        structUtils.devirtualizeLocator(virtualPackage).locatorHash,
+        ...Array.from(virtualPackage.dependencies.values(), descriptor => {
+          const resolution = descriptor.range !== `missing:`
+            ? allResolutions.get(descriptor.descriptorHash)
+            : `missing:`;
 
-            if (typeof resolution === `undefined`)
-              throw new Error(`Assertion failed: Expected the resolution for ${structUtils.prettyDescriptor(project.configuration, descriptor)} to have been registered`);
+          if (typeof resolution === `undefined`)
+            throw new Error(`Assertion failed: Expected the resolution for ${structUtils.prettyDescriptor(project.configuration, descriptor)} to have been registered`);
 
-            return resolution === top ? `${resolution} (top)` : resolution;
-          }),
-          // We use the identHash to disambiguate between virtual descriptors
-          // with different base idents being resolved to the same virtual package.
-          // Note: We don't use the descriptorHash because the whole point of duplicate
-          // virtual descriptors is that they have different `virtual:` ranges.
-          // This causes the virtual descriptors with different base idents
-          // to be preserved, while the virtual package they resolve to gets deduped.
-          virtualDescriptor.identHash,
-        );
+          return resolution === top ? `${resolution} (top)` : resolution;
+        }),
+      );
 
-        const masterDescriptor = otherVirtualInstances.get(dependencyHash);
-        if (typeof masterDescriptor === `undefined`) {
-          otherVirtualInstances.set(dependencyHash, virtualDescriptor);
-          continue;
-        }
+      const masterLocator = allVirtualInstances.get(dependencyHash);
+      if (typeof masterLocator === `undefined`) {
+        allVirtualInstances.set(dependencyHash, virtualPackage);
+        continue;
+      }
 
-        // Since we're applying multiple pass, we might have already registered
-        // ourselves as the "master" descriptor in the previous pass.
-        if (masterDescriptor === virtualDescriptor)
-          continue;
+      // Change every descriptor that is resolving to the virtual package to
+      // resolve to the master locator instead, then discard the virtual
+      // package
+      const masterResolutions = miscUtils.getSetWithDefault(allVirtualResolutions, masterLocator.locatorHash);
+      for (const descriptorHash of allVirtualResolutions.get(virtualPackage.locatorHash) ?? []) {
+        allResolutions.set(descriptorHash, masterLocator.locatorHash);
+        masterResolutions.add(descriptorHash);
+      }
+      allPackages.delete(virtualPackage.locatorHash);
+      accessibleLocators.delete(virtualPackage.locatorHash);
+      dedupeCandidates.delete(virtualPackage.locatorHash);
 
-        allPackages.delete(virtualPackage.locatorHash);
-        allDescriptors.delete(virtualDescriptor.descriptorHash);
-        allResolutions.delete(virtualDescriptor.descriptorHash);
+      const dependents = allVirtualDependents.get(virtualPackage.locatorHash);
+      if (dependents !== undefined) {
+        const masterDependents = miscUtils.getSetWithDefault(allVirtualDependents, masterLocator.locatorHash);
+        for (const dependent of dependents) {
+          // A dependent of the virtual package is now a dependent of the
+          // master package
+          masterDependents.add(dependent);
 
-        accessibleLocators.delete(virtualPackage.locatorHash);
-
-        const dependents = allVirtualDependents.get(virtualDescriptor.descriptorHash) || [];
-        const allDependents = [parentPackage.locatorHash, ...dependents];
-
-        allVirtualDependents.delete(virtualDescriptor.descriptorHash);
-
-        for (const dependent of allDependents) {
-          const pkg = allPackages.get(dependent);
-          if (typeof pkg === `undefined`)
-            continue;
-
-          if (pkg.dependencies.get(virtualDescriptor.identHash)!.descriptorHash !== masterDescriptor.descriptorHash)
-            stable = false;
-
-          pkg.dependencies.set(virtualDescriptor.identHash, masterDescriptor);
-        }
-
-        for (const peerRequirement of parentPeerRequirements.values()) {
-          if (peerRequirement.provided.descriptorHash === virtualDescriptor.descriptorHash) {
-            peerRequirement.provided = masterDescriptor;
-          }
+          // Virtual packages that depended on the deduplicated package would
+          // get a different dependency hash now, so we need to deduplicate
+          // them again
+          dedupeCandidates.add(dependent);
         }
       }
-    } while (!stable);
+    }
 
     for (const fn of [...thirdPass, ...fourthPass]) {
       fn();
@@ -2579,7 +2563,7 @@ function applyVirtualResolutionMutations({
     // For backwards-compatibility
     // TODO: Remove for next major
     for (const peerRequest of requirement.requests.values()) {
-      const hash = `p${hashUtils.makeHash(requirement.subject.locatorHash, structUtils.stringifyIdent(requirement.ident), peerRequest.requester.locatorHash).slice(0, 5)}`;
+      const hash = `p${hashUtils.makeHash(requirement.subject.locatorHash, structUtils.stringifyIdent(requirement.ident), peerRequest.requester.locatorHash).slice(0, 6)}`;
 
       peerRequirements.set(hash, {
         subject: requirement.subject.locatorHash,
@@ -2622,7 +2606,7 @@ function applyVirtualResolutionMutations({
 
           // For backwards-compatibility
           // TODO: Remove for next major
-          const hash = `p${hashUtils.makeHash(requirement.subject.locatorHash, structUtils.stringifyIdent(requirement.ident), peerRequest.requester.locatorHash).slice(0, 5)}`;
+          const hash = `p${hashUtils.makeHash(requirement.subject.locatorHash, structUtils.stringifyIdent(requirement.ident), peerRequest.requester.locatorHash).slice(0, 6)}`;
 
           peerWarnings.push({
             type: PeerWarningType.NotCompatible,
@@ -2656,7 +2640,7 @@ function applyVirtualResolutionMutations({
 
           // For backwards-compatibility
           // TODO: Remove for next major
-          const hash = `p${hashUtils.makeHash(requirement.subject.locatorHash, structUtils.stringifyIdent(requirement.ident), peerRequest.requester.locatorHash).slice(0, 5)}`;
+          const hash = `p${hashUtils.makeHash(requirement.subject.locatorHash, structUtils.stringifyIdent(requirement.ident), peerRequest.requester.locatorHash).slice(0, 6)}`;
 
           peerWarnings.push({
             type: PeerWarningType.NotProvided,
@@ -2759,7 +2743,7 @@ function emitPeerDependencyWarnings(project: Project, report: Report) {
       } (${
         formatUtils.pretty(project.configuration, warning.hash, formatUtils.Type.CODE)
       }), requested by ${
-        structUtils.prettyIdent(project.configuration, warning.node.requests.values().next().value.requester)
+        structUtils.prettyIdent(project.configuration, warning.node.requests.values().next().value!.requester)
       }${otherPackages}.`);
     }
   }

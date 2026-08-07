@@ -1,4 +1,4 @@
-import throttle               from 'lodash/throttle';
+import {throttle}             from 'es-toolkit/compat';
 import {PassThrough}          from 'stream';
 import {StringDecoder}        from 'string_decoder';
 
@@ -38,7 +38,7 @@ export type SectionOptions = {
   skipIfEmpty?: boolean;
 };
 
-export type TimerOptions = Pick<SectionOptions, 'skipIfEmpty'>;
+export type TimerOptions = Pick<SectionOptions, `skipIfEmpty`>;
 
 export abstract class Report {
   cacheHits = new Set<LocatorHash>();

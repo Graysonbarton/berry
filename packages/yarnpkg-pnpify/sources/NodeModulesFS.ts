@@ -116,7 +116,7 @@ export class PortableNodeModulesFS extends FakeFS<PortablePath> {
     return this.baseFs;
   }
 
-  private resolvePath(p: PortablePath): ResolvedPath & { fullOriginalPath: PortablePath } {
+  private resolvePath(p: PortablePath): ResolvedPath & {fullOriginalPath: PortablePath} {
     if (typeof p === `number`) {
       return {resolvedPath: p, fullOriginalPath: p};
     } else {
@@ -162,7 +162,7 @@ export class PortableNodeModulesFS extends FakeFS<PortablePath> {
       let stat;
       try {
         stat = this.baseFs.lstatSync(pnpPath.resolvedPath, statOptions);
-      } catch (e) {}
+      } catch {}
 
       if (stat) {
         return onSymlink(stat, this.pathUtils.relative(this.pathUtils.dirname(pnpPath.fullOriginalPath), pnpPath.resolvedPath));
@@ -201,9 +201,7 @@ export class PortableNodeModulesFS extends FakeFS<PortablePath> {
       let fsDirList: Array<Filename> = [];
       try {
         fsDirList = await this.baseFs.readdirPromise(pnpPath.resolvedPath);
-      } catch (e) {
-        // Ignore errors
-      }
+      } catch {}
       const entries = Array.from(pnpPath.dirList || [`node_modules` as Filename]).concat(fsDirList).sort();
 
       return opendir(this, p, entries);
@@ -218,9 +216,7 @@ export class PortableNodeModulesFS extends FakeFS<PortablePath> {
       let fsDirList: Array<Filename> = [];
       try {
         fsDirList = this.baseFs.readdirSync(pnpPath.resolvedPath);
-      } catch (e) {
-        // Ignore errors
-      }
+      } catch {}
       const entries = Array.from(pnpPath.dirList || [`node_modules` as Filename]).concat(fsDirList).sort();
 
       return opendir(this, p, entries);
@@ -339,8 +335,8 @@ export class PortableNodeModulesFS extends FakeFS<PortablePath> {
 
   async lstatPromise(p: PortablePath): Promise<Stats>;
   async lstatPromise(p: PortablePath, opts: {bigint: true}): Promise<BigIntStats>;
-  async lstatPromise(p: PortablePath, opts?: { bigint: boolean }): Promise<BigIntStats | Stats>;
-  async lstatPromise(p: PortablePath, opts?: { bigint: boolean }) {
+  async lstatPromise(p: PortablePath, opts?: {bigint: boolean}): Promise<BigIntStats | Stats>;
+  async lstatPromise(p: PortablePath, opts?: {bigint: boolean}) {
     return this.resolveLink({
       p,
       op: `lstat`,
@@ -352,8 +348,8 @@ export class PortableNodeModulesFS extends FakeFS<PortablePath> {
 
   lstatSync(p: PortablePath): Stats;
   lstatSync(p: PortablePath, opts: {bigint: true}): BigIntStats;
-  lstatSync(p: PortablePath, opts?: { bigint: boolean }): BigIntStats | Stats;
-  lstatSync(p: PortablePath, opts?: { bigint: boolean }): BigIntStats | Stats {
+  lstatSync(p: PortablePath, opts?: {bigint: boolean}): BigIntStats | Stats;
+  lstatSync(p: PortablePath, opts?: {bigint: boolean}): BigIntStats | Stats {
     return this.resolveLink({
       p,
       op: `lstat`,
@@ -495,16 +491,16 @@ export class PortableNodeModulesFS extends FakeFS<PortablePath> {
     return this.baseFs.symlinkSync(this.resolveDirOrFilePath(target), this.resolveDirOrFilePath(p));
   }
 
-  readFilePromise(p: FSPath<PortablePath>, encoding?: null): Promise<Buffer>;
+  readFilePromise(p: FSPath<PortablePath>, encoding?: null): Promise<NonSharedBuffer>;
   readFilePromise(p: FSPath<PortablePath>, encoding: BufferEncoding): Promise<string>;
-  readFilePromise(p: FSPath<PortablePath>, encoding?: BufferEncoding | null): Promise<Buffer | string>;
+  readFilePromise(p: FSPath<PortablePath>, encoding?: BufferEncoding | null): Promise<NonSharedBuffer | string>;
   async readFilePromise(p: FSPath<PortablePath>, encoding?: BufferEncoding | null) {
     return await this.baseFs.readFilePromise(this.resolveFilePath(p), encoding);
   }
 
-  readFileSync(p: FSPath<PortablePath>, encoding?: null): Buffer;
+  readFileSync(p: FSPath<PortablePath>, encoding?: null): NonSharedBuffer;
   readFileSync(p: FSPath<PortablePath>, encoding: BufferEncoding): string;
-  readFileSync(p: FSPath<PortablePath>, encoding?: BufferEncoding | null): Buffer | string;
+  readFileSync(p: FSPath<PortablePath>, encoding?: BufferEncoding | null): NonSharedBuffer | string;
   readFileSync(p: FSPath<PortablePath>, encoding?: BufferEncoding | null) {
     return this.baseFs.readFileSync(this.resolveFilePath(p), encoding);
   }
@@ -528,9 +524,7 @@ export class PortableNodeModulesFS extends FakeFS<PortablePath> {
       let fsDirList: Array<Filename> = [];
       try {
         fsDirList = await this.baseFs.readdirPromise(pnpPath.resolvedPath);
-      } catch (e) {
-        // Ignore errors
-      }
+      } catch {}
 
       const entries = Array.from(pnpPath.dirList || [`node_modules` as Filename]).concat(fsDirList).sort();
       if (!opts?.withFileTypes)
@@ -540,6 +534,7 @@ export class PortableNodeModulesFS extends FakeFS<PortablePath> {
         return Object.assign(this.lstatSync(ppath.join(p, name)), {
           name,
           path: undefined,
+          parentPath: undefined,
         });
       });
     } else {
@@ -566,9 +561,7 @@ export class PortableNodeModulesFS extends FakeFS<PortablePath> {
       let fsDirList: Array<Filename> = [];
       try {
         fsDirList = this.baseFs.readdirSync(pnpPath.resolvedPath);
-      } catch (e) {
-        // Ignore errors
-      }
+      } catch {}
 
       const entries = Array.from(pnpPath.dirList || [`node_modules` as Filename]).concat(fsDirList).sort();
       if (!opts?.withFileTypes)
@@ -578,6 +571,7 @@ export class PortableNodeModulesFS extends FakeFS<PortablePath> {
         return Object.assign(this.lstatSync(ppath.join(p, name)), {
           name,
           path: undefined,
+          parentPath: undefined,
         });
       });
     } else {
@@ -630,7 +624,7 @@ export class PortableNodeModulesFS extends FakeFS<PortablePath> {
     } else {
       return this.baseFs.watch(
         this.resolveDirOrFilePath(p),
-        // @ts-expect-error
+        // @ts-expect-error - reason TBS
         a,
         b,
       );
@@ -642,7 +636,7 @@ export class PortableNodeModulesFS extends FakeFS<PortablePath> {
   watchFile(p: PortablePath, a: WatchFileOptions | WatchFileCallback, b?: WatchFileCallback): StatWatcher {
     return this.baseFs.watchFile(
       this.resolveDirOrFilePath(p),
-      // @ts-expect-error
+      // @ts-expect-error - reason TBS
       a,
       b,
     );

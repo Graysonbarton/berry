@@ -1,9 +1,9 @@
-import {VirtualFS, npath}                                                                            from '@yarnpkg/fslib';
-import fs                                                                                            from 'fs';
-import {fileURLToPath, pathToFileURL}                                                                from 'url';
+import {VirtualFS, npath}                                                                                                          from '@yarnpkg/fslib';
+import fs                                                                                                                          from 'fs';
+import {fileURLToPath, pathToFileURL}                                                                                              from 'url';
 
-import {SUPPORTS_IMPORT_ATTRIBUTES, SUPPORTS_IMPORT_ATTRIBUTES_ONLY, WATCH_MODE_MESSAGE_USES_ARRAYS} from '../loaderFlags';
-import * as loaderUtils                                                                              from '../loaderUtils';
+import {HAS_BROKEN_FSTAT_FOR_ZIP_FDS, SUPPORTS_IMPORT_ATTRIBUTES, SUPPORTS_IMPORT_ATTRIBUTES_ONLY, WATCH_MODE_MESSAGE_USES_ARRAYS} from '../loaderFlags';
+import * as loaderUtils                                                                                                            from '../loaderUtils';
 
 // The default `load` doesn't support reading from zip files
 export async function load(
@@ -11,14 +11,14 @@ export async function load(
   context: {
     format: string | null | undefined;
     importAssertions?: {
-      type?: 'json';
+      type?: `json`;
     };
     importAttributes?: {
-      type?: 'json';
+      type?: `json`;
     };
   },
   nextLoad: typeof load,
-): Promise<{ format: string, source?: string, shortCircuit: boolean }> {
+): Promise<{format: string, source?: string, shortCircuit: boolean}> {
   const url = loaderUtils.tryParseURL(urlString);
   if (url?.protocol !== `file:`)
     return nextLoad(urlString, context, nextLoad);
@@ -32,14 +32,14 @@ export async function load(
   if (format === `json`) {
     if (SUPPORTS_IMPORT_ATTRIBUTES_ONLY) {
       if (context.importAttributes?.type !== `json`) {
-        const err = new TypeError(`[ERR_IMPORT_ATTRIBUTE_MISSING]: Module "${urlString}" needs an import attribute of "type: json"`) as TypeError & { code: string };
+        const err = new TypeError(`[ERR_IMPORT_ATTRIBUTE_MISSING]: Module "${urlString}" needs an import attribute of "type: json"`) as TypeError & {code: string};
         err.code = `ERR_IMPORT_ATTRIBUTE_MISSING`;
         throw err;
       }
     } else {
       const type = `importAttributes` in context ? context.importAttributes?.type : context.importAssertions?.type;
       if (type !== `json`) {
-        const err = new TypeError(`[ERR_IMPORT_ASSERTION_TYPE_MISSING]: Module "${urlString}" needs an import ${SUPPORTS_IMPORT_ATTRIBUTES ? `attribute` : `assertion`} of type "json"`) as TypeError & { code: string };
+        const err = new TypeError(`[ERR_IMPORT_ASSERTION_TYPE_MISSING]: Module "${urlString}" needs an import ${SUPPORTS_IMPORT_ATTRIBUTES ? `attribute` : `assertion`} of type "json"`) as TypeError & {code: string};
         err.code = `ERR_IMPORT_ASSERTION_TYPE_MISSING`;
         throw err;
       }
@@ -61,9 +61,14 @@ export async function load(
     });
   }
 
+  const shouldReadSource = format === `commonjs` && HAS_BROKEN_FSTAT_FOR_ZIP_FDS && filePath.includes(`.zip/`);
+  const source = format !== `commonjs` || shouldReadSource
+    ? await fs.promises.readFile(filePath, `utf8`)
+    : undefined;
+
   return {
     format,
-    source: format === `commonjs` ? undefined : await fs.promises.readFile(filePath, `utf8`),
+    source,
     shortCircuit: true,
   };
 }

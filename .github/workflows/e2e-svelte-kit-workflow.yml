@@ -24,6 +24,24 @@ jobs:
     - name: 'Running the integration test'
       run: |
         source scripts/e2e-setup-ci.sh
-        yes | yarn create svelte@next my-app && cd my-app
+
+        yarn dlx sv create --template demo --types ts --no-add-ons --no-install my-app
+        cd my-app
+
         yarn
+
         yarn build
+
+    - name: 'Running the TypeScript integration test'
+      run: |
+        source scripts/e2e-setup-ci.sh
+
+        yarn dlx sv create --template demo --types ts --no-add-ons --no-install my-app
+        cd my-app
+
+        yarn
+
+        yarn build
+
+      if: |
+        success() || failure()

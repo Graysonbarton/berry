@@ -9,10 +9,12 @@ import {IncomingMessage, ServerResponse}           from 'http';
 import http                                        from 'http';
 import invariant                                   from 'invariant';
 import {AddressInfo}                               from 'net';
+import net                                         from 'net';
 import os                                          from 'os';
 import pem                                         from 'pem';
 import semver                                      from 'semver';
 import serveStatic                                 from 'serve-static';
+import * as sigstore                               from 'sigstore';
 import stream                                      from 'stream';
 import * as t                                      from 'typanion';
 import {promisify}                                 from 'util';
@@ -25,12 +27,28 @@ import * as fsUtils                                from './fs';
 const deepResolve = require(`super-resolve`);
 const staticServer = serveStatic(npath.fromPortablePath(require(`pkg-tests-fixtures`)));
 
+const TEST_MAJOR = process.env.TEST_MAJOR
+  ? parseInt(process.env.TEST_MAJOR, 10)
+  : 4;
+
+function majorCheck(test: (major: number) => boolean) {
+  return TEST_MAJOR === null || test(TEST_MAJOR);
+}
+
+export const FEATURE_CHECKS = {
+  forEachWorktree: majorCheck(major => major <= 4),
+  forEachVerboseDone: majorCheck(major => major >= 5),
+  jsonLockfile: majorCheck(major => major >= 5),
+  prologConstraints: majorCheck(major => major <= 4),
+  mergeConflictTheirs: majorCheck(major => major >= 5),
+} as const;
+
 // Testing things inside a big-endian container takes forever
 export const TEST_TIMEOUT = os.endianness() === `BE`
-  ? 150000
+  ? 300000
   : 75000;
 
-export type PackageEntry = Map<string, {path: string, packageJson: Record<string, any>}>;
+export type PackageEntry = Map<string, {path: string, packageJson: Record<string, any>, releaseDate: string | undefined}>;
 export type PackageRegistry = Map<string, PackageEntry>;
 
 interface RunDriverOptions extends Record<string, any> {
@@ -51,10 +69,15 @@ export enum RequestType {
   Login = `login`,
   PackageInfo = `packageInfo`,
   PackageTarball = `packageTarball`,
+  PackageVersion = `packageVersion`,
   Whoami = `whoami`,
   Repository = `repository`,
   Publish = `publish`,
   BulkAdvisories = `bulkAdvisories`,
+  StageList = `stageList`,
+  StageApprove = `stageApprove`,
+  StageReject = `stageReject`,
+  StagePublish = `stagePublish`,
 }
 
 export type Request = {
@@ -66,6 +89,12 @@ export type Request = {
   type: RequestType.PackageInfo;
   scope?: string;
   localName: string;
+} | {
+  registry?: string;
+  type: RequestType.PackageVersion;
+  scope?: string;
+  localName: string;
+  version: string;
 } | {
   registry?: string;
   type: RequestType.PackageTarball;
@@ -86,6 +115,25 @@ export type Request = {
 } | {
   registry?: string;
   type: RequestType.BulkAdvisories;
+} | {
+  registry?: string;
+  type: RequestType.StageList;
+  packageFilter?: string;
+  page: number;
+  perPage: number;
+} | {
+  registry?: string;
+  type: RequestType.StageApprove;
+  stageId: string;
+} | {
+  registry?: string;
+  type: RequestType.StageReject;
+  stageId: string;
+} | {
+  registry?: string;
+  type: RequestType.StagePublish;
+  scope?: string;
+  localName: string;
 };
 
 export class Login {
@@ -154,6 +202,31 @@ export const ADVISORIES = new Map<string, Array<npmAuditTypes.AuditMetadata>>([
   }]],
 ]);
 
+// Packages without an explicit publish date pretend to have been released long
+// ago, so that the `npmMinimalAgeGate` setting (defaulting to `1d`) doesn't
+// quarantine them when running tests.
+const OLD_RELEASE_DATE = new Date(0).toISOString();
+
+const RELEASE_DATE_PACKAGES: Record<string, Record<string, number | string>> = {
+  "release-date": {
+    "1.0.0": new Date(new Date().getTime() - /* 10 days */ 1000 * 60 * 60 * 24 * 10).toISOString(),
+    "1.1.0": new Date(new Date().getTime() - /* 5 days */ 1000 * 60 * 60 * 24 * 5).toISOString(),
+    "1.1.1-beta": new Date(new Date().getTime() - /* 3 days */ 1000 * 60 * 60 * 24 * 3).toISOString(),
+    "1.1.1": new Date().toISOString(),
+  },
+  "release-date-transitive": {
+    "1.0.0": new Date(new Date().getTime() - /* 10 days */ 1000 * 60 * 60 * 24 * 10).toISOString(),
+    "1.1.0": new Date(new Date().getTime() - /* 5 days */ 1000 * 60 * 60 * 24 * 5).toISOString(),
+    "1.1.1": new Date().toISOString(),
+  },
+  "@scoped/release-date": {
+    "1.0.0": new Date(new Date().getTime() - /* 10 days */ 1000 * 60 * 60 * 24 * 10).toISOString(),
+    "1.1.0": new Date(new Date().getTime() - /* 5 days */ 1000 * 60 * 60 * 24 * 5).toISOString(),
+    "1.1.1": new Date().toISOString(),
+    "1.1.2": new Date(new Date().getTime() - /* 5 days */ 1000 * 60 * 60 * 24 * 5).toISOString(),
+  },
+};
+
 export const validLogins = {
   fooUser: new Login(`foo-user`),
   barUser: new Login(`bar-user`),
@@ -210,7 +283,7 @@ export const getPackageRegistry = (): Promise<PackageRegistry> => {
       const packageFile = ppath.join(packagesDir, packageName, Filename.manifest);
       const packageJson = await xfs.readJsonPromise(packageFile);
 
-      const {name, version} = packageJson;
+      const {name, version}: {name: string, version: string} = packageJson;
       if (name.startsWith(`git-`))
         continue;
 
@@ -314,12 +387,26 @@ export const getPackageDirectoryPath = async (
   return packageVersionEntry.path;
 };
 
+interface StagedPackageEntry {
+  id: string;
+  packageName: string;
+  version: string;
+  tag: string;
+  createdAt: string;
+  actor: string;
+  actorType: string;
+  access: string;
+  shasum: string;
+}
+
+const stagedPackages = new Map<string, StagedPackageEntry>();
+
 const packageServerUrls: {
   http: Promise<string> | null;
   https: Promise<string> | null;
 } = {http: null, https: null};
 
-export const startPackageServer = ({type}: { type: keyof typeof packageServerUrls } = {type: `http`}): Promise<string> => {
+export const startPackageServer = ({type}: {type: keyof typeof packageServerUrls} = {type: `http`}): Promise<string> => {
   const serverUrl = packageServerUrls[type];
   if (serverUrl !== null)
     return serverUrl;
@@ -399,11 +486,53 @@ export const startPackageServer = ({type}: { type: keyof typeof packageServerUrl
             }),
           )),
         ),
+        time: name in RELEASE_DATE_PACKAGES
+          ? RELEASE_DATE_PACKAGES[name]
+          : Object.fromEntries(versions.map(version => [version, OLD_RELEASE_DATE])),
         [`dist-tags`]: {
           latest: semver.maxSatisfying(versions, `*`),
           ...distTags,
         },
       });
+
+      response.writeHead(200, {[`Content-Type`]: `application/json`});
+      response.end(data);
+    },
+
+    async [RequestType.PackageVersion](parsedRequest, request, response) {
+      if (parsedRequest.type !== RequestType.PackageVersion)
+        throw new Error(`Assertion failed: Invalid request type`);
+
+      const {scope, localName, version} = parsedRequest;
+      const name = scope ? `${scope}/${localName}` : localName;
+
+      if (parsedRequest.registry === `jsr` && scope !== `jsr`) {
+        processError(response, 404, `Package not found: ${name}`);
+        return;
+      }
+
+      if (parsedRequest.registry !== `jsr` && scope === `jsr`) {
+        processError(response, 404, `Package not found: ${name}`);
+        return;
+      }
+
+      const packageEntry = await getPackageEntry(name);
+      if (!packageEntry) {
+        processError(response, 404, `Package not found: ${name}`);
+        return;
+      }
+
+      const packageVersionEntry = packageEntry.get(version);
+      invariant(packageVersionEntry, `This can only exist`);
+
+      const data = JSON.stringify(Object.assign({}, packageVersionEntry!.packageJson, {
+        dist: {
+          shasum: await getPackageArchiveHash(name, version),
+          tarball: (localName === `unconventional-tarball` || localName === `private-unconventional-tarball`)
+            ? (await getPackageHttpArchivePath(name, version)).replace(`/-/`, `/tralala/`)
+            : await getPackageHttpArchivePath(name, version),
+        },
+      }));
 
       response.writeHead(200, {[`Content-Type`]: `application/json`});
       response.end(data);
@@ -474,7 +603,7 @@ export const startPackageServer = ({type}: { type: keyof typeof packageServerUrl
         let body;
         try {
           body = JSON.parse(rawData);
-        } catch (e) {
+        } catch {
           return processError(response, 401, `Unauthorized`);
         }
 
@@ -507,7 +636,7 @@ export const startPackageServer = ({type}: { type: keyof typeof packageServerUrl
         let body;
         try {
           body = JSON.parse(rawData);
-        } catch (e) {
+        } catch {
           return processError(response, 401, `Invalid`);
         }
 
@@ -520,6 +649,15 @@ export const startPackageServer = ({type}: { type: keyof typeof packageServerUrl
 
         if (typeof body.versions[version].gitHead !== `undefined` && name === `githead-forbidden`)
           return processError(response, 400, `Unexpected gitHead`);
+
+        if (name === `provenance-required`) {
+          try {
+            const bundle = JSON.parse(body._attachments[`${name}-${version}.sigstore`].data);
+            sigstore.verify(bundle);
+          } catch (error) {
+            return processError(response, 400, (error as Error).message);
+          }
+        }
 
         response.writeHead(200, {[`Content-Type`]: `application/json`});
         return response.end(rawData);
@@ -537,7 +675,7 @@ export const startPackageServer = ({type}: { type: keyof typeof packageServerUrl
         let body;
         try {
           body = JSON.parse(rawData);
-        } catch (e) {
+        } catch {
           return processError(response, 401, `Invalid`);
         }
 
@@ -558,6 +696,101 @@ export const startPackageServer = ({type}: { type: keyof typeof packageServerUrl
 
         response.writeHead(200, {[`Content-Type`]: `application/json`});
         return response.end(JSON.stringify(result));
+      });
+    },
+
+    async [RequestType.StageList](parsedRequest, _, response) {
+      if (parsedRequest.type !== RequestType.StageList)
+        throw new Error(`Assertion failed: Invalid request type`);
+
+      const {packageFilter, page, perPage} = parsedRequest;
+
+      let items = [...stagedPackages.values()];
+      if (packageFilter)
+        items = items.filter(item => item.packageName === packageFilter);
+
+      const total = items.length;
+      const paginatedItems = items.slice(page * perPage, (page + 1) * perPage);
+
+      const data = JSON.stringify({items: paginatedItems, page, perPage, total});
+      response.writeHead(200, {[`Content-Type`]: `application/json`});
+      response.end(data);
+    },
+
+    async [RequestType.StageApprove](parsedRequest, _, response) {
+      if (parsedRequest.type !== RequestType.StageApprove)
+        throw new Error(`Assertion failed: Invalid request type`);
+
+      const {stageId} = parsedRequest;
+
+      if (!stagedPackages.has(stageId)) {
+        processError(response, 404, `Stage ID not found: ${stageId}`);
+        return;
+      }
+
+      stagedPackages.delete(stageId);
+
+      const data = JSON.stringify({message: `Package version approved and published successfully.`});
+      response.writeHead(201, {[`Content-Type`]: `application/json`});
+      response.end(data);
+    },
+
+    async [RequestType.StageReject](parsedRequest, _, response) {
+      if (parsedRequest.type !== RequestType.StageReject)
+        throw new Error(`Assertion failed: Invalid request type`);
+
+      const {stageId} = parsedRequest;
+
+      if (!stagedPackages.has(stageId)) {
+        processError(response, 404, `Stage ID not found: ${stageId}`);
+        return;
+      }
+
+      stagedPackages.delete(stageId);
+
+      response.writeHead(204);
+      response.end();
+    },
+
+    async [RequestType.StagePublish](parsedRequest, request, response) {
+      if (parsedRequest.type !== RequestType.StagePublish)
+        throw new Error(`Assertion failed: Invalid request type`);
+
+      const {scope, localName} = parsedRequest;
+      const name = scope ? `${scope}/${localName}` : localName;
+
+      let rawData = ``;
+
+      request.on(`data`, chunk => rawData += chunk);
+      request.on(`end`, () => {
+        let body;
+        try {
+          body = JSON.parse(rawData);
+        } catch {
+          return processError(response, 400, `Invalid JSON`);
+        }
+
+        const [version] = Object.keys(body.versions);
+        const tag = Object.keys(body[`dist-tags`])[0] || `latest`;
+        const shasum = body.versions[version]?.dist?.shasum || ``;
+
+        const stageId = uuidv5(`${name}-${version}-${Date.now()}`, `06030d6c-8c43-412a-ad0a-787f1fb9e31e`);
+
+        stagedPackages.set(stageId, {
+          id: stageId,
+          packageName: name,
+          version,
+          tag,
+          createdAt: new Date().toISOString(),
+          actor: `test-user`,
+          actorType: `user`,
+          access: body.access || `public`,
+          shasum,
+        });
+
+        const data = JSON.stringify({message: `Package version staged successfully.`, stageId});
+        response.writeHead(201, {[`Content-Type`]: `application/json`});
+        return response.end(data);
       });
     },
   };
@@ -610,6 +843,35 @@ export const startPackageServer = ({type}: { type: keyof typeof packageServerUrl
           ...registry,
           type: RequestType.BulkAdvisories,
         };
+      } else if (url.match(/^\/-\/stage(\?|$)/) && method === `GET`) {
+        const urlObj = new URL(url, `http://localhost`);
+        return {
+          ...registry,
+          type: RequestType.StageList,
+          packageFilter: urlObj.searchParams.get(`package`) ?? undefined,
+          page: parseInt(urlObj.searchParams.get(`page`) ?? `0`, 10),
+          perPage: parseInt(urlObj.searchParams.get(`perPage`) ?? `100`, 10),
+        };
+      } else if ((match = url.match(/^\/-\/stage\/([0-9a-f-]+)\/approve$/)) && method === `POST`) {
+        return {
+          ...registry,
+          type: RequestType.StageApprove,
+          stageId: match[1],
+        };
+      } else if ((match = url.match(/^\/-\/stage\/([0-9a-f-]+)$/)) && method === `DELETE`) {
+        return {
+          ...registry,
+          type: RequestType.StageReject,
+          stageId: match[1],
+        };
+      } else if ((match = url.match(/^\/-\/stage\/package\/(?:(@[^/]+)\/)?([^@/][^/]*)$/)) && method === `POST`) {
+        const [, scope, localName] = match;
+        return {
+          ...registry,
+          type: RequestType.StagePublish,
+          scope,
+          localName,
+        };
       } else if ((match = url.match(/^\/(?:(@[^/]+)\/)?([^@/][^/]*)$/)) && method == `PUT`) {
         const [, scope, localName] = match;
 
@@ -627,6 +889,16 @@ export const startPackageServer = ({type}: { type: keyof typeof packageServerUrl
           type: RequestType.PackageInfo,
           scope,
           localName,
+        };
+      } else if ((match = url.match(/^\/(?:(@[^/]+)\/)?([^@/][^/]*)\/([0-9]+\.[0-9]+\.[0-9]+(?:-[^/]+)?)$/))) {
+        const [, scope, localName, version] = match;
+
+        return {
+          ...registry,
+          type: RequestType.PackageVersion,
+          scope,
+          localName,
+          version,
         };
       } else if ((match = url.match(/^\/(?:(@[^/]+)\/)?([^@/][^/]*)\/(-|tralala)\/\2-(.*)\.tgz(\?.*)?$/))) {
         const [, scope, localName, split, version] = match;
@@ -651,6 +923,10 @@ export const startPackageServer = ({type}: { type: keyof typeof packageServerUrl
     switch (parsedRequest.type) {
       case RequestType.Publish:
       case RequestType.Whoami:
+      case RequestType.StageList:
+      case RequestType.StageApprove:
+      case RequestType.StageReject:
+      case RequestType.StagePublish:
         return true;
 
       case RequestType.PackageInfo:
@@ -696,7 +972,10 @@ export const startPackageServer = ({type}: { type: keyof typeof packageServerUrl
               return;
             }
 
-            if (!applyOtpValidation(req, res, user))
+            const skipOtp = parsedRequest.type === RequestType.StageList
+              || parsedRequest.type === RequestType.StagePublish;
+
+            if (!skipOtp && !applyOtpValidation(req, res, user))
               return;
 
             if (parsedRequest.type === RequestType.Whoami) {
@@ -729,6 +1008,110 @@ export const startPackageServer = ({type}: { type: keyof typeof packageServerUrl
       } else {
         throw new Error(`Invalid server type: ${type}`);
       }
+
+      // We don't want the server to prevent the process from exiting
+      server.unref();
+      server.listen(() => {
+        const {port} = server.address() as AddressInfo;
+        resolve(`${type}://localhost:${port}`);
+      });
+    })();
+  });
+};
+
+const proxyServerUrls: {
+  http: Promise<string> | null;
+  https: Promise<string> | null;
+} = {http: null, https: null};
+
+export const startProxyServer = ({type = `http`}: {type?: keyof typeof proxyServerUrls} = {}): Promise<string> => {
+  const serverUrl = proxyServerUrls[type];
+  if (serverUrl !== null)
+    return serverUrl;
+
+  const sendError = (res: ServerResponse, statusCode: number, errorMessage: string): void => {
+    res.writeHead(statusCode);
+    res.end(errorMessage);
+  };
+
+  return proxyServerUrls[type] = new Promise((resolve, reject) => {
+    const listener: http.RequestListener = (req, res) => {
+      void (async () => {
+        try {
+          if (!req.url) {
+            sendError(res, 400, `Missing URL in request`);
+            return;
+          }
+
+          const url = new URL(req.url);
+          const options = {
+            hostname: url.hostname,
+            port: url.port || (url.protocol === `https:` ? 443 : 80),
+            path: `${url.pathname}${url.search}`,
+            method: req.method,
+            headers: {...req.headers},
+          };
+
+          delete options.headers[`proxy-authorization`];
+          delete options.headers[`proxy-connection`];
+          options.headers.connection = `close`;
+
+          const proxyReq = (url.protocol === `https:` ? https : http).request(options, proxyRes => {
+            res.writeHead(proxyRes.statusCode || 500, proxyRes.headers);
+            proxyRes.pipe(res);
+          });
+
+          req.pipe(proxyReq);
+
+          proxyReq.on(`error`, err => {
+            sendError(res, 502, `Proxy error: ${err.message}`);
+          });
+        } catch (error) {
+          sendError(res, 500, `Proxy server error: ${error.message}`);
+        }
+      })();
+    };
+
+    (async () => {
+      let server: https.Server | http.Server;
+
+      if (type === `https`) {
+        const certs = await getHttpsCertificates();
+
+        server = https.createServer({
+          cert: certs.server.certificate,
+          key: certs.server.clientKey,
+          ca: certs.ca.certificate,
+        }, listener);
+      } else {
+        server = http.createServer(listener);
+      }
+
+      // Handle the CONNECT method using the 'connect' event
+      server.on(`connect`, (req, clientSocket, head) => {
+        // Parse the target and establish the connection
+        const [targetHost, targetPort] = (req.url || ``).split(`:`);
+        const port = parseInt(targetPort) || 443;
+
+        const serverSocket = net.connect(port, targetHost, () => {
+          clientSocket.write(
+            `HTTP/1.1 200 Connection Established\r\n` +
+            `\r\n`,
+          );
+
+          serverSocket.write(head);
+
+          serverSocket.pipe(clientSocket);
+          clientSocket.pipe(serverSocket);
+        });
+
+        serverSocket.on(`error`, () => {
+          clientSocket.end();
+        });
+        clientSocket.on(`error`, () => {
+          serverSocket.end();
+        });
+      });
 
       // We don't want the server to prevent the process from exiting
       server.unref();
@@ -774,7 +1157,6 @@ export const generatePkgDriver = ({
 
       if (typeof fn !== `function`) {
         throw new Error(
-          // eslint-disable-next-line
           `Invalid test function (got ${typeof fn}) - you probably put the closing parenthesis of the "makeTemporaryEnv" utility at the wrong place`,
         );
       }
@@ -903,11 +1285,18 @@ export const generatePkgDriver = ({
   return withConfig({});
 };
 
-export const testIf = (condition: () => boolean, name: string,
-  execute?: jest.ProvidesCallback | undefined, timeout?: number | undefined) => {
-  if (condition()) {
-    test(name, execute, timeout);
-  }
+export const testIf = (condition: (() => boolean) | keyof typeof FEATURE_CHECKS | boolean, name: string, execute?: jest.ProvidesCallback | undefined, timeout?: number | undefined) => {
+  const isConditionMet = typeof condition === `function`
+    ? condition()
+    : typeof condition === `boolean`
+      ? condition
+      : FEATURE_CHECKS[condition];
+
+  const testFn = isConditionMet
+    ? test
+    : test.skip;
+
+  testFn(name, execute, timeout);
 };
 
 let httpsCertificates: {
@@ -919,7 +1308,7 @@ export const getHttpsCertificates = async () => {
   if (httpsCertificates)
     return httpsCertificates;
 
-  const createCSR = promisify<pem.CSRCreationOptions, { csr: string, clientKey: string }>(pem.createCSR);
+  const createCSR = promisify<pem.CSRCreationOptions, {csr: string, clientKey: string}>(pem.createCSR);
   const createCertificate = promisify<pem.CertificateCreationOptions, pem.CertificateCreationResult>(pem.createCertificate);
 
   const {csr, clientKey} = await createCSR({commonName: `yarn`});

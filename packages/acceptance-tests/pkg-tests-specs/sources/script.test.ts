@@ -186,7 +186,7 @@ describe(`Scripts tests`, () => {
 
         for (const file of files) {
           if (!existsSync(join(process.env.BERRY_BIN_FOLDER, file))) {
-            console.error('Expected ' + file + ' to exist');
+            console.error('Expected ' + file + ' to exist in ' + process.env.BERRY_BIN_FOLDER);
             process.exit(1);
           }
         }
@@ -196,6 +196,7 @@ describe(`Scripts tests`, () => {
 
       await expect(run(`test`)).resolves.toMatchObject({
         stdout: `ok\n`,
+        stderr: ``,
       });
     }),
   );
@@ -341,7 +342,9 @@ describe(`Scripts tests`, () => {
 
       test(
         `it should run install scripts during the install`,
-        makeTemporaryEnv({dependencies: {[`no-deps-scripted`]: `1.0.0`}}, async ({path, run, source}) => {
+        makeTemporaryEnv({dependencies: {[`no-deps-scripted`]: `1.0.0`}}, {
+          enableScripts: true,
+        }, async ({path, run, source}) => {
           await run(`install`);
 
           await expect(source(`require('no-deps-scripted/log.js')`)).resolves.toEqual([
@@ -456,7 +459,9 @@ describe(`Scripts tests`, () => {
 
       test(
         `it should abort with an error if a package can't be built`,
-        makeTemporaryEnv({dependencies: {[`no-deps-scripted-to-fail`]: `1.0.0`}}, async ({path, run, source}) => {
+        makeTemporaryEnv({dependencies: {[`no-deps-scripted-to-fail`]: `1.0.0`}}, {
+          enableScripts: true,
+        }, async ({path, run, source}) => {
           await expect(run(`install`)).rejects.toThrow();
         }),
       );
@@ -521,6 +526,9 @@ describe(`Scripts tests`, () => {
           {
             dependencies: {[`binding-gyp-scripts`]: `1.0.0`},
           },
+          {
+            enableScripts: true,
+          },
           async ({path, run, source}) => {
             await run(`install`, {env: {}});
 
@@ -539,6 +547,8 @@ describe(`Scripts tests`, () => {
           dependencies: {
             [`no-deps-scripted`]: `1.0.0`,
           },
+        }, {
+          enableScripts: true,
         }, async ({path, run, source}) => {
           await run(`install`);
 
@@ -666,7 +676,9 @@ describe(`Scripts tests`, () => {
 
           await run(`install`);
 
-          console.log(await run(`run`, `bar`, `--version`));
+          await expect(run(`run`, `bar`, `--version`)).resolves.toMatchObject({
+            stdout: expect.stringMatching(/^git version /),
+          });
         }),
       );
     });

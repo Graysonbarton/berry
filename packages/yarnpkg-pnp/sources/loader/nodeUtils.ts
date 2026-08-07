@@ -1,4 +1,5 @@
-import {NativePath, npath, VirtualFS}   from '@yarnpkg/fslib';
+import type {NativePath, PortablePath}  from '@yarnpkg/fslib';
+import {npath, VirtualFS}               from '@yarnpkg/fslib';
 import fs                               from 'fs';
 import path                             from 'path';
 
@@ -47,16 +48,16 @@ export function ERR_REQUIRE_ESM(filename: string, parentPath: string | null = nu
     `require() of ES Module ${filename}${parentPath ? ` from ${parentPath}` : ``} not supported.
 Instead change the require of ${basename} in ${parentPath} to a dynamic import() which is available in all CommonJS modules.`;
 
-  const err = new Error(msg) as Error & { code: string };
+  const err = new Error(msg) as Error & {code: string};
   err.code = `ERR_REQUIRE_ESM`;
   return err;
 }
 
 // https://github.com/nodejs/node/pull/44366
 // https://github.com/nodejs/node/pull/45348
-export function reportRequiredFilesToWatchMode(files: Array<NativePath>) {
+export function reportRequiredFilesToWatchMode(paths: Array<PortablePath>) {
   if (process.env.WATCH_REPORT_DEPENDENCIES && process.send) {
-    files = files.map(filename => npath.fromPortablePath(VirtualFS.resolveVirtual(npath.toPortablePath(filename))));
+    const files = paths.map(filename => npath.fromPortablePath(VirtualFS.resolveVirtual(filename)));
     if (WATCH_MODE_MESSAGE_USES_ARRAYS) {
       process.send({'watch:require': files});
     } else {

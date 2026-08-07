@@ -2,11 +2,11 @@
 
 import {Project, structUtils} from '@yarnpkg/core';
 import {PortablePath}         from '@yarnpkg/fslib';
-import getPath                from 'lodash/get';
+import {get as getPath}       from 'es-toolkit/compat';
 import pl                     from 'tau-prolog';
 import vm                     from 'vm';
 
-// eslint-disable-next-line @typescript-eslint/naming-convention
+
 const {is_atom: isAtom, is_variable: isVariable, is_instantiated_list: isInstantiatedList} = pl.type;
 
 function prependGoals(thread: pl.type.Thread, point: pl.type.State, goals: Array<pl.type.Term<number, string>>): void {

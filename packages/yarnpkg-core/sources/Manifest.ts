@@ -9,8 +9,8 @@ import * as structUtils                                   from './structUtils';
 import {Ident, Descriptor}                                from './types';
 import {IdentHash}                                        from './types';
 
-export type AllDependencies = 'dependencies' | 'devDependencies' | 'peerDependencies';
-export type HardDependencies = 'dependencies' | 'devDependencies';
+export type AllDependencies = `dependencies` | `devDependencies` | `peerDependencies`;
+export type HardDependencies = `dependencies` | `devDependencies`;
 
 export interface WorkspaceDefinition {
   pattern: string;
@@ -28,13 +28,14 @@ export interface PeerDependencyMeta {
 
 export interface PublishConfig {
   access?: string;
+  bin?: Map<string, PortablePath>;
+  browser?: PortablePath | Map<PortablePath, boolean | PortablePath>;
+  executableFiles?: Set<PortablePath>;
   main?: PortablePath;
   module?: PortablePath;
-  type?: string;
-  browser?: PortablePath | Map<PortablePath, boolean | PortablePath>;
-  bin?: Map<string, PortablePath>;
+  provenance?: boolean;
   registry?: string;
-  executableFiles?: Set<PortablePath>;
+  type?: string;
 }
 
 export interface InstallConfig {
@@ -54,7 +55,7 @@ export class Manifest {
   public type: string | null = null;
 
   public packageManager: string | null = null;
-  public ["private"]: boolean = false;
+  public [`private`]: boolean = false;
   public license: string | null = null;
 
   public main: PortablePath | null = null;
@@ -170,7 +171,7 @@ export class Manifest {
     if (typeof data.name === `string`) {
       try {
         this.name = structUtils.parseIdent(data.name);
-      } catch (error) {
+      } catch {
         errors.push(new Error(`Parsing failed for the 'name' field`));
       }
     }
@@ -334,7 +335,7 @@ export class Manifest {
         let ident;
         try {
           ident = structUtils.parseIdent(name);
-        } catch (error) {
+        } catch {
           errors.push(new Error(`Parsing failed for the dependency name '${name}'`));
           continue;
         }
@@ -355,7 +356,7 @@ export class Manifest {
         let ident;
         try {
           ident = structUtils.parseIdent(name);
-        } catch (error) {
+        } catch {
           errors.push(new Error(`Parsing failed for the dependency name '${name}'`));
           continue;
         }
@@ -371,7 +372,7 @@ export class Manifest {
         let ident;
         try {
           ident = structUtils.parseIdent(name);
-        } catch (error) {
+        } catch {
           errors.push(new Error(`Parsing failed for the dependency name '${name}'`));
           continue;
         }
@@ -522,6 +523,9 @@ export class Manifest {
       if (typeof data.publishConfig.registry === `string`)
         this.publishConfig.registry = data.publishConfig.registry;
 
+      if (typeof data.publishConfig.provenance === `boolean`)
+        this.publishConfig.provenance = data.publishConfig.provenance;
+
       if (typeof data.publishConfig.bin === `string`) {
         if (this.name !== null) {
           this.publishConfig.bin = new Map([[this.name.name, normalizeSlashes(data.publishConfig.bin)]]);
@@ -595,7 +599,7 @@ export class Manifest {
         let ident;
         try {
           ident = structUtils.parseIdent(name);
-        } catch (error) {
+        } catch {
           errors.push(new Error(`Parsing failed for the dependency name '${name}'`));
           continue;
         }

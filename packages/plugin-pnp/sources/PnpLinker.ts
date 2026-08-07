@@ -107,8 +107,8 @@ export class PnpInstaller implements Installer {
   private customData: {
     store: Map<LocatorHash, CustomPackageData>;
   } = {
-      store: new Map(),
-    };
+    store: new Map(),
+  };
 
   attachCustomData(customData: any) {
     this.customData = customData;
@@ -258,10 +258,6 @@ export class PnpInstaller implements Installer {
       });
     }
 
-    this.packageRegistry.set(null, new Map([
-      [null, this.getPackageInformation(this.opts.project.topLevelWorkspace.anchoredLocator)],
-    ]));
-
     const pnpFallbackMode = this.opts.project.configuration.get(`pnpFallbackMode`);
 
     const dependencyTreeRoots = this.opts.project.workspaces.map(({anchoredLocator}) => ({name: structUtils.stringifyIdent(anchoredLocator), reference: anchoredLocator.reference}));
@@ -271,6 +267,7 @@ export class PnpInstaller implements Installer {
     const ignorePattern = miscUtils.buildIgnorePattern([`.yarn/sdks/**`, ...this.opts.project.configuration.get(`pnpIgnorePatterns`)]);
     const packageRegistry = this.packageRegistry;
     const shebang = this.opts.project.configuration.get(`pnpShebang`);
+    const pnpZipBackend = this.opts.project.configuration.get(`pnpZipBackend`);
 
     if (pnpFallbackMode === `dependencies-only`)
       for (const pkg of this.opts.project.storedPackages.values())
@@ -285,6 +282,7 @@ export class PnpInstaller implements Installer {
       fallbackExclusionList,
       fallbackPool,
       ignorePattern,
+      pnpZipBackend,
       packageRegistry,
       shebang,
     });
@@ -351,7 +349,7 @@ export class PnpInstaller implements Installer {
     }
 
     if (this.isEsmEnabled()) {
-      this.opts.report.reportWarning(MessageName.UNNAMED, `ESM support for PnP uses the experimental loader API and is therefore experimental`);
+      this.opts.report.reportWarning(MessageName.EXPERIMENTAL, `ESM support for PnP uses the experimental loader API and is therefore experimental`);
       await xfs.changeFilePromise(pnpPath.esmLoader, getESMLoaderTemplate(), {
         automaticNewlines: true,
         mode: 0o644,

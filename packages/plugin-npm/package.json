@@ -1,6 +1,6 @@
 {
   "name": "@yarnpkg/plugin-npm",
-  "version": "3.0.1",
+  "version": "3.7.1",
   "license": "BSD-2-Clause",
   "main": "./sources/index.ts",
   "exports": {
@@ -10,9 +10,11 @@
   "dependencies": {
     "@yarnpkg/fslib": "workspace:^",
     "enquirer": "^2.3.6",
-    "lodash": "^4.17.15",
-    "semver": "^7.1.2",
-    "ssri": "^6.0.1",
+    "es-toolkit": "^1.39.7",
+    "micromatch": "^4.0.2",
+    "semver": "^7.8.5",
+    "sigstore": "^4.1.1",
+    "ssri": "^12.0.0",
     "tslib": "^2.4.0"
   },
   "peerDependencies": {
@@ -20,15 +22,15 @@
     "@yarnpkg/plugin-pack": "workspace:^"
   },
   "devDependencies": {
-    "@types/lodash": "^4.14.136",
+    "@types/micromatch": "^4.0.1",
     "@types/semver": "^7.1.0",
-    "@types/ssri": "^6.0.1",
+    "@types/ssri": "^7.1.5",
     "@yarnpkg/core": "workspace:^",
     "@yarnpkg/plugin-pack": "workspace:^"
   },
   "repository": {
     "type": "git",
-    "url": "ssh://git@github.com/yarnpkg/berry.git",
+    "url": "git+https://github.com/yarnpkg/berry.git",
     "directory": "packages/plugin-npm"
   },
   "scripts": {
@@ -48,5 +50,5 @@
   "engines": {
     "node": ">=18.12.0"
   },
-  "stableVersion": "3.0.1"
+  "stableVersion": "3.7.1"
 }

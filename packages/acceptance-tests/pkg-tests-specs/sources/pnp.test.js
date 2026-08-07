@@ -1326,6 +1326,9 @@ describe(`Plug'n'Play`, () => {
       {
         dependencies: {[`no-deps-scripted`]: `1.0.0`},
       },
+      {
+        enableScripts: true,
+      },
       async ({path, run, source}) => {
         await run(`install`);
 
@@ -1388,6 +1391,9 @@ describe(`Plug'n'Play`, () => {
     makeTemporaryEnv(
       {
         dependencies: {[`no-deps-scripted`]: `1.0.0`},
+      },
+      {
+        enableScripts: true,
       },
       async ({path, run, source}) => {
         await run(`install`);
@@ -1631,20 +1637,18 @@ describe(`Plug'n'Play`, () => {
         },
       },
       async ({path, run, source}) => {
+        await writeFile(`${path}/dep/index.js`, `module.exports = require('./package.json');`);
+
         await writeJson(npath.toPortablePath(`${path}/dep/package.json`), {
           name: `dep`,
           version: `1.0.0`,
           os: [`!${process.platform}`],
           scripts: {
-            postinstall: `echo 'Shall not be run'`,
+            postinstall: `echo 'module.exports = 42;' > index.js`,
           },
         });
-        await writeFile(`${path}/dep/index.js`, `module.exports = require('./package.json');`);
 
-        const stdout = (await run(`install`)).stdout;
-
-        expect(stdout).not.toContain(`Shall not be run`);
-        expect(stdout).toMatch(new RegExp(`dep@file:./dep.*The ${process.platform}-${process.arch}(-[a-z]+)? architecture is incompatible with this package, build skipped.`));
+        await run(`install`);
 
         await expect(source(`require('dep')`)).resolves.toMatchObject({
           name: `dep`,
@@ -1955,23 +1959,21 @@ describe(`Plug'n'Play`, () => {
           'no-deps-scripted': `*`,
         },
       },
+      {
+        enableScripts: true,
+      },
       async ({path, run, source}) => {
-        await expect(run(`install`)).resolves.toMatchObject({
-          code: 0,
-          stdout: expect.stringContaining(`YN0007`),
-        });
-
-        await expect(run(`install`)).resolves.toMatchObject({
-          code: 0,
-          stdout: expect.not.stringContaining(`YN0007`),
-        });
+        await run(`install`);
 
         await xfs.removePromise(ppath.join(path, `.yarn/unplugged`));
 
-        await expect(run(`install`)).resolves.toMatchObject({
-          code: 0,
-          stdout: expect.stringContaining(`YN0007`),
-        });
+        await run(`install`);
+
+        await expect(source(`require('no-deps-scripted/log')`)).resolves.toEqual([
+          `preinstall`,
+          `install`,
+          `postinstall`,
+        ]);
       },
     ),
   );
@@ -2251,6 +2253,33 @@ describe(`Plug'n'Play`, () => {
         stdout: ``,
         stderr: expect.stringContaining(`of module exports inside circular dependency`),
       });
+    }),
+  );
+
+  testIf(
+    () => process.platform !== `win32`,
+    `it can resolve files from zips that are symlinks`,
+    makeTemporaryEnv({
+      dependencies: {
+        [`no-deps`]: `1.0.0`,
+      },
+    }, async ({path, run, source}) => {
+      await run(`install`);
+
+      const allFiles = await xfs.readdirPromise(ppath.join(path, `.yarn/cache`));
+      const zipFiles = allFiles.filter(file => file.endsWith(`.zip`));
+
+      await xfs.mkdirPromise(ppath.join(path, `store`));
+      for (const filename of zipFiles) {
+        const zipFile = ppath.join(path, `.yarn/cache`, filename);
+        const storePath = ppath.join(path, `store`, filename);
+        await xfs.movePromise(zipFile, storePath);
+        await xfs.symlinkPromise(storePath, zipFile);
+      }
+
+      await expect(
+        source(`require('no-deps')`),
+      ).resolves.toEqual({name: `no-deps`, version: `1.0.0`});
     }),
   );
 });

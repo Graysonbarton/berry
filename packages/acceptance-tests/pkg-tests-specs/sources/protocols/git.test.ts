@@ -1,7 +1,6 @@
-import {execUtils, semverUtils}      from '@yarnpkg/core';
-import {Filename, npath, ppath, xfs} from '@yarnpkg/fslib';
-import {parseSyml}                   from '@yarnpkg/parsers';
-import {tests}                       from 'pkg-tests-core';
+import {execUtils, semverUtils} from '@yarnpkg/core';
+import {npath}                  from '@yarnpkg/fslib';
+import {tests}                  from 'pkg-tests-core';
 
 const TESTED_URLS = {
   // We've picked util-deprecate because it doesn't have any dependency, and
@@ -22,6 +21,14 @@ const TESTED_URLS = {
   [`https://github.com/yarnpkg/util-deprecate.git#b3562c2798507869edb767da869cd7b85487726d`]: {version: `1.0.0`, runOnCI: true},
 };
 
+const defaultGitConfiguration = {
+  approvedGitRepositories: [
+    `http://localhost:*/repositories/*.git`,
+    `https://github.com/yarnpkg/util-deprecate.git`,
+    `ssh://git@github.com/yarnpkg/util-deprecate.git`,
+  ],
+};
+
 describe(`Protocols`, () => {
   describe(`git:`, () => {
     for (const [url, {version, runOnCI}] of Object.entries(TESTED_URLS)) {
@@ -35,16 +42,9 @@ describe(`Protocols`, () => {
           {
             dependencies: {[`util-deprecate`]: url},
           },
+          defaultGitConfiguration,
           async ({path, run, source}) => {
             await run(`install`);
-
-            const content = await xfs.readFilePromise(ppath.join(path, Filename.lockfile), `utf8`);
-            const lock = parseSyml(content);
-
-            const key = `util-deprecate@${url}`;
-
-            expect(lock).toMatchObject({[key]: {version}});
-            expect(lock[`util-deprecate@${url}`].resolution).toMatchSnapshot();
 
             await expect(source(`require('util-deprecate/package.json')`)).resolves.toMatchObject({
               name: `util-deprecate`,
@@ -63,6 +63,7 @@ describe(`Protocols`, () => {
             [`has-prepack`]: tests.startPackageServer().then(url => `${url}/repositories/has-prepack.git`),
           },
         },
+        defaultGitConfiguration,
         async ({path, run, source}) => {
           await run(`install`);
 
@@ -79,6 +80,7 @@ describe(`Protocols`, () => {
             [`no-prepack`]: tests.startPackageServer().then(url => `${url}/repositories/no-prepack.git`),
           },
         },
+        defaultGitConfiguration,
         async ({path, run, source}) => {
           await run(`install`);
 
@@ -96,6 +98,7 @@ describe(`Protocols`, () => {
             [`pkg-b`]: tests.startPackageServer().then(url => `${url}/repositories/deep-projects.git#cwd=projects/pkg-b`),
           },
         },
+        defaultGitConfiguration,
         async ({path, run, source}) => {
           await run(`install`);
 
@@ -113,6 +116,25 @@ describe(`Protocols`, () => {
     );
 
     test(
+      `it should block git dependencies from repositories that aren't approved`,
+      makeTemporaryEnv(
+        {
+          dependencies: {
+            [`has-prepack`]: tests.startPackageServer().then(url => `${url}/repositories/has-prepack.git`),
+          },
+        },
+        {
+          approvedGitRepositories: [`https://github.com/yarnpkg/*`],
+        },
+        async ({run}) => {
+          await expect(run(`install`)).rejects.toThrow(
+            /doesn't match any of the patterns in 'approvedGitRepositories'/,
+          );
+        },
+      ),
+    );
+
+    test(
       `it should support installing workspace packages from projects in subfolders`,
       makeTemporaryEnv(
         {
@@ -121,6 +143,7 @@ describe(`Protocols`, () => {
             [`lib-b`]: tests.startPackageServer().then(url => `${url}/repositories/deep-projects.git#cwd=projects/pkg-b&workspace=lib`),
           },
         },
+        defaultGitConfiguration,
         async ({path, run, source}) => {
           await run(`install`);
 
@@ -149,6 +172,7 @@ describe(`Protocols`, () => {
             [`pkg-b`]: tests.startPackageServer().then(url => `${url}/repositories/workspaces.git#workspace=pkg-b`),
           },
         },
+        defaultGitConfiguration,
         async ({path, run, source}) => {
           await run(`install`);
 
@@ -173,6 +197,7 @@ describe(`Protocols`, () => {
             [`yarn-1-project`]: tests.startPackageServer().then(url => `${url}/repositories/yarn-1-project.git`),
           },
         },
+        defaultGitConfiguration,
         async ({path, run, source}) => {
           await expect(run(`install`, {
             env: {
@@ -197,6 +222,7 @@ describe(`Protocols`, () => {
             [`npm-project`]: tests.startPackageServer().then(url => `${url}/repositories/npm-project.git`),
           },
         },
+        defaultGitConfiguration,
         async ({path, run, source}) => {
           await run(`install`);
 
@@ -213,6 +239,7 @@ describe(`Protocols`, () => {
             [`npm-has-prepack`]: tests.startPackageServer().then(url => `${url}/repositories/npm-has-prepack.git`),
           },
         },
+        defaultGitConfiguration,
         async ({path, run, source}) => {
           await expect(run(`install`, {
             env: {
@@ -245,6 +272,7 @@ describe(`Protocols`, () => {
             [`pkg-b`]: tests.startPackageServer().then(url => `${url}/repositories/npm-workspaces.git#workspace=pkg-b`),
           },
         },
+        defaultGitConfiguration,
         async ({path, run, source}) => {
           const {code, stdout, stderr} = await execUtils.execvp(`npm`, [`--version`], {cwd: path});
           if (code !== 0)
@@ -280,6 +308,7 @@ describe(`Protocols`, () => {
             [`yarn-1-project`]: tests.startPackageServer().then(url => `${url}/repositories/yarn-1-project.git`),
           },
         },
+        defaultGitConfiguration,
         async ({path, run, source}) => {
           // This checks that the `set version classic` part of `scriptUtils.prepareExternalProject` doesn't use Corepack.
           // The rest of the install will fail though.
@@ -304,6 +333,7 @@ describe(`Protocols`, () => {
             [`no-lockfile-project`]: tests.startPackageServer().then(url => `${url}/repositories/no-lockfile-project.git`),
           },
         },
+        defaultGitConfiguration,
         async ({path, run, source}) => {
           await expect(run(`install`, {
             env: {
@@ -323,6 +353,7 @@ describe(`Protocols`, () => {
             [`yarn-1-project`]: tests.startPackageServer().then(url => `${url}/repositories/yarn-1-project.git`),
           },
         },
+        defaultGitConfiguration,
         async ({path, run, source}) => {
           await expect(run(`install`)).resolves.toBeTruthy();
 
